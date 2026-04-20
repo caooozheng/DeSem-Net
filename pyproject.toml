@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipuie"
+version = "0.1.0"
+description = "Clean research framework for underwater image enhancement."
+requires-python = ">=3.9"
+dependencies = [
+  "torch",
+  "torchvision",
+  "opencv-python",
+  "numpy",
+  "pillow",
+  "tqdm",
+  "PyYAML",
+  "scikit-image",
+  "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
+]
+
+[tool.setuptools.packages.find]
+include = ["clipuie*"]
