@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from clipuie.config import MultimodalSection
+from clipuie.models.multimodal import MultimodalConditionAdapter
 from clipuie.models.ops import AFF, AtrousBlock, DownSample, GetGradientNopadding1CGray, NonLocalSparseAttention, RCB, UpSample
 
 
@@ -52,10 +54,12 @@ class ClipUIENet(nn.Module):
         chan_factor: int = 2,
         bias: bool = True,
         use_sam_mask: bool = False,
+        multimodal_config: MultimodalSection | None = None,
     ) -> None:
         super().__init__()
         self.num_branch = num_branch
         self.use_sam_mask = use_sam_mask
+        self.multimodal_enabled = multimodal_config.enabled if multimodal_config is not None else False
         self.act = nn.LeakyReLU(0.1, True)
         atrous = [1, 2, 3, 4]
         self.dau_top = nn.Sequential(*[RCB(int(n_feat * chan_factor ** 0), self.act, bias=bias) for _ in range(n_rcb)])
@@ -89,6 +93,26 @@ class ClipUIENet(nn.Module):
         self.b_block_2 = RCB(2 * n_feat, self.act, bias=bias)
         self.style_loss = StyleLossModule()
         self.adaptive_route = GramGlobalWeightNet(channels=n_feat * chan_factor ** 2, num_weights=num_branch)
+        if self.multimodal_enabled:
+            self.multimodal_adapter = MultimodalConditionAdapter(multimodal_config)
+            self.cond_top = nn.Linear(multimodal_config.adapter_hidden_dim, 2 * int(n_feat * chan_factor ** 0))
+            self.cond_mid = nn.Linear(multimodal_config.adapter_hidden_dim, 2 * int(n_feat * chan_factor ** 1))
+            self.cond_bot = nn.Linear(multimodal_config.adapter_hidden_dim, 2 * int(n_feat * chan_factor ** 2))
+            nn.init.zeros_(self.cond_top.weight)
+            nn.init.zeros_(self.cond_top.bias)
+            nn.init.zeros_(self.cond_mid.weight)
+            nn.init.zeros_(self.cond_mid.bias)
+            nn.init.zeros_(self.cond_bot.weight)
+            nn.init.zeros_(self.cond_bot.bias)
+        else:
+            self.multimodal_adapter = None
+
+    @staticmethod
+    def _apply_condition(features: torch.Tensor, condition: torch.Tensor, projector: nn.Linear) -> torch.Tensor:
+        gamma, beta = projector(condition).chunk(2, dim=1)
+        gamma = (0.1 * torch.tanh(gamma)).unsqueeze(-1).unsqueeze(-1)
+        beta = (0.1 * torch.tanh(beta)).unsqueeze(-1).unsqueeze(-1)
+        return features * (1.0 + gamma) + beta
 
     def _prepare_mask(self, mask: torch.Tensor | None, x: torch.Tensor) -> torch.Tensor:
         if mask is None:
@@ -106,16 +130,29 @@ class ClipUIENet(nn.Module):
         x_style = self.down4(x_str)
         return x_str, x_style
 
-    def transfer(self, x_str: torch.Tensor, x_style: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def transfer(
+        self,
+        x_str: torch.Tensor,
+        x_style: torch.Tensor,
+        condition: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x_mid = self.down2(x_str)
         x_str1 = self.dau_top(self.atb_top(x_str))
         x_mid1 = self.dau_mid(self.atb_mid(x_mid))
         x_style1 = self.dau_bot(self.atb_bot(x_style))
+        if condition is not None:
+            x_str1 = self._apply_condition(x_str1, condition, self.cond_top)
+            x_mid1 = self._apply_condition(x_mid1, condition, self.cond_mid)
+            x_style1 = self._apply_condition(x_style1, condition, self.cond_bot)
         x_mid1 = self.aff_mid(x_mid1, self.up32_1(x_style1))
         x_str1 = self.aff_top(x_str1, self.up21_1(x_mid1))
         x_str2 = self.dau_top(self.atb_top(x_str1))
         x_mid2 = self.dau_mid(self.nl_mid(x_mid1))
         x_style2 = self.dau_bot(self.nl_bot(x_style1))
+        if condition is not None:
+            x_str2 = self._apply_condition(x_str2, condition, self.cond_top)
+            x_mid2 = self._apply_condition(x_mid2, condition, self.cond_mid)
+            x_style2 = self._apply_condition(x_style2, condition, self.cond_bot)
         x_mid2 = self.aff_mid(x_mid2, self.up32_2(x_style2))
         x_str2 = self.aff_top(x_str2, self.up21_2(x_mid2))
         mid_out = self.conv_mid(x_str2) + x_str2
@@ -123,33 +160,78 @@ class ClipUIENet(nn.Module):
         x_cat_2 = self.b_concat_2(self.b_block_2(torch.cat([x_cat_1, x_str2], dim=1)))
         return self.aff_final(mid_out, x_cat_2), x_style2
 
+    def _compute_multimodal_condition(
+        self,
+        inputs: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        prompts: list[str] | None = None,
+    ) -> torch.Tensor | None:
+        if not self.multimodal_enabled:
+            return None
+        if prompts is None:
+            raise ValueError("Prompts are required when multimodal support is enabled.")
+        prepared_mask = self._prepare_mask(mask, inputs)
+        return self.multimodal_adapter(inputs, prepared_mask, prompts)
+
+    def _apply_initial_condition(
+        self,
+        x_str: torch.Tensor,
+        x_style: torch.Tensor,
+        condition: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        if condition is None:
+            return x_str, x_style
+        return self._apply_condition(x_str, condition, self.cond_top), self._apply_condition(x_style, condition, self.cond_bot)
+
     def decode(self, out_f: torch.Tensor) -> torch.Tensor:
         return self.conv_out(out_f)
 
-    def forward(self, inputs: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(self, inputs: torch.Tensor, mask: torch.Tensor | None = None, prompts: list[str] | None = None) -> torch.Tensor:
         x_str, x_style = self.encode(inputs, mask)
-        x_str, _ = self.transfer(x_str, x_style)
+        condition = self._compute_multimodal_condition(inputs, mask, prompts)
+        x_str, x_style = self._apply_initial_condition(x_str, x_style, condition)
+        x_str, _ = self.transfer(x_str, x_style, condition)
         return self.decode(x_str)
 
-    def forward_recon(self, inputs: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+    def forward_recon(self, inputs: torch.Tensor, mask: torch.Tensor | None = None, prompts: list[str] | None = None) -> torch.Tensor:
         x_str, _ = self.encode(inputs, mask)
+        condition = self._compute_multimodal_condition(inputs, mask, prompts)
+        if condition is not None:
+            x_str = self._apply_condition(x_str, condition, self.cond_top)
         return self.decode(x_str)
 
-    def forward_style_loss(self, inputs: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward_style_loss(
+        self,
+        inputs: torch.Tensor,
+        gt: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        prompts: list[str] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x_str, x_style = self.encode(inputs, mask)
-        x_str, x_style = self.transfer(x_str, x_style)
+        condition = self._compute_multimodal_condition(inputs, mask, prompts)
+        x_str, x_style = self._apply_initial_condition(x_str, x_style, condition)
+        x_str, x_style = self.transfer(x_str, x_style, condition)
         _, gt_style = self.encode(gt, mask)
         return self.decode(x_str), self.style_loss(x_style, gt_style)
 
-    def forward_route(self, inputs: torch.Tensor, mask: torch.Tensor | None = None, return_logits: bool = False, return_proc_outs: bool = False):
+    def forward_route(
+        self,
+        inputs: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        prompts: list[str] | None = None,
+        return_logits: bool = False,
+        return_proc_outs: bool = False,
+    ):
         x_str, x_style = self.encode(inputs, mask)
+        condition = self._compute_multimodal_condition(inputs, mask, prompts)
+        x_str, x_style = self._apply_initial_condition(x_str, x_style, condition)
         x_style_w = torch.zeros_like(x_style)
         x_str_w = torch.zeros_like(x_str)
         x_style_branch_outs = [x_style]
         x_str_branch_outs = [x_str]
         x_outs = [self.decode(x_str)]
         for _ in range(self.num_branch - 1):
-            x_str, x_style = self.transfer(x_str, x_style)
+            x_str, x_style = self.transfer(x_str, x_style, condition)
             x_style_branch_outs.append(x_style)
             x_str_branch_outs.append(x_str)
             if return_proc_outs:
@@ -172,17 +254,20 @@ class ClipUIENet(nn.Module):
         inputs: torch.Tensor,
         gt: torch.Tensor,
         mask: torch.Tensor | None = None,
+        prompts: list[str] | None = None,
         return_logits: bool = False,
         return_proc_outs: bool = False,
     ):
         x_str, x_style = self.encode(inputs, mask)
+        condition = self._compute_multimodal_condition(inputs, mask, prompts)
+        x_str, x_style = self._apply_initial_condition(x_str, x_style, condition)
         x_style_w = torch.zeros_like(x_style)
         x_str_w = torch.zeros_like(x_str)
         x_style_branch_outs = [x_style]
         x_str_branch_outs = [x_str]
         x_outs = [inputs]
         for _ in range(self.num_branch - 1):
-            x_str, x_style = self.transfer(x_str, x_style)
+            x_str, x_style = self.transfer(x_str, x_style, condition)
             x_style_branch_outs.append(x_style)
             x_str_branch_outs.append(x_str)
             if return_proc_outs:

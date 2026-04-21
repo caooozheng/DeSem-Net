@@ -29,7 +29,14 @@ class Evaluator:
             targets = batch["target"].to(self.device)
             masks = batch["mask"].to(self.device)
             names = batch["name"]
-            outputs, _, output_list = self.model.forward_route(inputs, masks, return_logits=True, return_proc_outs=True)
+            prompts = list(batch["prompt"])
+            outputs, _, output_list = self.model.forward_route(
+                inputs,
+                masks,
+                prompts,
+                return_logits=True,
+                return_proc_outs=True,
+            )
             for index, name in enumerate(names):
                 input_sample = inputs[index : index + 1]
                 target_sample = targets[index : index + 1]

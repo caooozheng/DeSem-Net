@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from clipuie.config import DatasetSection
+from clipuie.data.prompts import build_underwater_prompt
 
 
 class PairedImageDataset(Dataset):
@@ -51,9 +52,13 @@ class PairedImageDataset(Dataset):
 
     def __getitem__(self, index: int) -> dict[str, torch.Tensor | str]:
         name = self.names[index]
+        input_tensor = self._load_rgb(self.input_dir / name)
+        target_tensor = self._load_rgb(self.target_dir / name)
+        mask_tensor = self._load_mask(name)
         return {
             "name": name,
-            "input": self._load_rgb(self.input_dir / name),
-            "target": self._load_rgb(self.target_dir / name),
-            "mask": self._load_mask(name),
+            "input": input_tensor,
+            "target": target_tensor,
+            "mask": mask_tensor,
+            "prompt": build_underwater_prompt(input_tensor, mask_tensor),
         }

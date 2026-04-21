@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from clipuie.config import ModelSection
+from clipuie.config import ModelSection, MultimodalSection
 from clipuie.models.architectures.clipuie_net import ClipUIENet
 
 
-def build_model(config: ModelSection) -> ClipUIENet:
+def build_model(config: ModelSection, multimodal_config: MultimodalSection | None = None) -> ClipUIENet:
     if config.name != "clipuie_net":
         raise ValueError(f"Unsupported model: {config.name}")
     return ClipUIENet(
@@ -14,4 +14,5 @@ def build_model(config: ModelSection) -> ClipUIENet:
         chan_factor=config.chan_factor,
         bias=config.bias,
         use_sam_mask=config.use_sam_mask,
+        multimodal_config=multimodal_config,
     )

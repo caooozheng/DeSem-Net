@@ -27,6 +27,7 @@ def create_run_directories(output_dir: str, experiment_name: str) -> dict[str, P
     directories = {
         "root": root,
         "checkpoints": root / "checkpoints",
+        "checkpoint_runs": root / "checkpoints" / "runs",
         "logs": root / "logs",
         "predictions": root / "predictions",
     }

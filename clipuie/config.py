@@ -38,6 +38,17 @@ class ModelSection:
 
 
 @dataclass
+class MultimodalSection:
+    enabled: bool = False
+    clip_model_name: str = "openai/clip-vit-base-patch32"
+    llm_model_name: str = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    freeze_clip: bool = True
+    freeze_llm: bool = True
+    prompt_max_length: int = 96
+    adapter_hidden_dim: int = 256
+
+
+@dataclass
 class OptimizerSection:
     name: str = "adamw"
     generator_lr: float = 1e-4
@@ -88,6 +99,7 @@ class ExperimentConfig:
     experiment: ExperimentSection
     dataset: DatasetSection
     model: ModelSection = field(default_factory=ModelSection)
+    multimodal: MultimodalSection = field(default_factory=MultimodalSection)
     optimizer: OptimizerSection = field(default_factory=OptimizerSection)
     scheduler: SchedulerSection = field(default_factory=SchedulerSection)
     training: TrainingSection = field(default_factory=TrainingSection)
@@ -111,6 +123,7 @@ def load_config(path: str | Path) -> ExperimentConfig:
         experiment=ExperimentSection(**raw["experiment"]),
         dataset=DatasetSection(**raw["dataset"]),
         model=ModelSection(**raw.get("model", {})),
+        multimodal=MultimodalSection(**raw.get("multimodal", {})),
         optimizer=OptimizerSection(**raw.get("optimizer", {})),
         scheduler=SchedulerSection(**raw.get("scheduler", {})),
         training=TrainingSection(**raw.get("training", {})),

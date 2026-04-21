@@ -37,7 +37,7 @@ def main() -> None:
     run_dirs = create_run_directories(config.experiment.output_dir, config.experiment.name)
     loaders = build_dataloaders(config.dataset)
     eval_key = "val" if config.training.validate_on == "val" and "val" in loaders else "test"
-    trainer = ClipUIETrainer(build_model(config.model), config, device, run_dirs)
+    trainer = ClipUIETrainer(build_model(config.model, config.multimodal), config, device, run_dirs)
     print(trainer.fit(loaders["train"], loaders[eval_key]))
 
 

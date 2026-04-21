@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -21,6 +22,9 @@ class ClipUIETrainer:
         self.config = config
         self.device = device
         self.run_dirs = run_dirs
+        self.run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.run_checkpoint_dir = run_dirs["checkpoint_runs"] / self.run_id
+        self.run_checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.loss_fn = CompositeReconstructionLoss().to(device)
         self._build_optimizers()
         self.evaluator = Evaluator(model=self.model, device=device, config=config.evaluation, prediction_dir=run_dirs["predictions"])
@@ -69,8 +73,9 @@ class ClipUIETrainer:
                 best_psnr = eval_metrics["psnr_256"]
                 best_metrics = eval_metrics
                 save_checkpoint(self.model.state_dict(), self.run_dirs["checkpoints"] / "best.pth")
+                save_checkpoint(self.model.state_dict(), self.run_checkpoint_dir / "best.pth")
             if self.config.training.checkpoint_interval > 0 and epoch % self.config.training.checkpoint_interval == 0:
-                save_checkpoint(self.model.state_dict(), self.run_dirs["checkpoints"] / f"epoch-{epoch:05d}.pth")
+                save_checkpoint(self.model.state_dict(), self.run_checkpoint_dir / f"epoch-{epoch:05d}.pth")
             print({"epoch": epoch, "train_loss": train_metrics["loss"], **eval_metrics})
         return best_metrics
 
@@ -81,15 +86,16 @@ class ClipUIETrainer:
             inputs = batch["input"].to(self.device)
             targets = batch["target"].to(self.device)
             masks = batch["mask"].to(self.device)
+            prompts = list(batch["prompt"])
             self.optimizer_g.zero_grad()
-            recon_input = self.model.forward_recon(inputs, masks)
+            recon_input = self.model.forward_recon(inputs, masks, prompts)
             loss = self.loss_fn(recon_input, inputs)
             loss = loss + self._region_loss(recon_input, inputs, masks)
-            recon_target = self.model.forward_recon(targets, masks)
+            recon_target = self.model.forward_recon(targets, masks, prompts)
             loss = loss + self.loss_fn(recon_target, targets)
             loss = loss + self._region_loss(recon_target, targets, masks)
             loss.backward(retain_graph=True)
-            output, style_loss = self.model.forward_style_loss(inputs, targets, masks)
+            output, style_loss = self.model.forward_style_loss(inputs, targets, masks, prompts)
             routed_loss = self.loss_fn(output, targets) + style_loss * self.config.training.lambda_style
             routed_loss = routed_loss + self._region_loss(output, targets, masks)
             routed_loss.backward(retain_graph=True)
@@ -99,7 +105,7 @@ class ClipUIETrainer:
                     output_r = inputs
                     psnrs = [compute_psnr_batch(output_r, targets).unsqueeze(-1)]
                     for _ in range(self.config.model.num_branch - 1):
-                        output_r = self.model.forward(output_r, masks)
+                        output_r = self.model.forward(output_r, masks, prompts)
                         psnrs.append(compute_psnr_batch(output_r, targets).unsqueeze(-1))
                     max_idx = torch.argmax(torch.cat(psnrs, dim=1), dim=1)
                 self.optimizer_router.zero_grad()
@@ -107,6 +113,7 @@ class ClipUIETrainer:
                     inputs,
                     targets,
                     masks,
+                    prompts,
                     return_logits=True,
                     return_proc_outs=True,
                 )

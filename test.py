@@ -14,7 +14,7 @@ from clipuie.utils import create_run_directories, resolve_device, seed_everythin
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate ClipUIe experiments.")
-    default_config = Path(__file__).resolve().parent / "configs" / "clipuie_uieb_baseline.yaml"
+    default_config = Path(__file__).resolve().parent / "sam_integration/configs" / "clipuie_uieb_sam_clip_llm.yaml"
     parser.add_argument(
         "--config",
         default=str(default_config),
@@ -43,7 +43,7 @@ def main() -> None:
     if not checkpoint_path:
         raise ValueError("No checkpoint configured. Set evaluation.checkpoint or training.pretrained_checkpoint in YAML, or pass --checkpoint.")
 
-    model = build_model(config.model).to(device)
+    model = build_model(config.model, config.multimodal).to(device)
     state_dict = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(state_dict, strict=False)
     evaluator = Evaluator(model, device, config.evaluation, run_dirs["predictions"])
