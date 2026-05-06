@@ -19,6 +19,11 @@ class Evaluator:
         self.config = config
         self.prediction_dir = prediction_dir
         self.metric_runner = ImageMetricRunner(config.compute_uiqm, config.compute_uciqe)
+        if config.save_images and prediction_dir is not None:
+            (prediction_dir / "output").mkdir(parents=True, exist_ok=True)
+            (prediction_dir / "comparison").mkdir(parents=True, exist_ok=True)
+            (prediction_dir / "input").mkdir(parents=True, exist_ok=True)
+            (prediction_dir / "target").mkdir(parents=True, exist_ok=True)
 
     @torch.no_grad()
     def evaluate(self, dataloader: torch.utils.data.DataLoader) -> dict[str, float]:
@@ -36,7 +41,16 @@ class Evaluator:
                 prompts,
                 return_logits=True,
                 return_proc_outs=True,
+                hard_route=self.config.hard_route,
             )
+            if self.config.output_branch_index is not None:
+                branch_index = int(self.config.output_branch_index)
+                if branch_index < 0 or branch_index >= len(output_list):
+                    raise ValueError(
+                        f"evaluation.output_branch_index={branch_index} is out of range for "
+                        f"{len(output_list)} available branches."
+                    )
+                outputs = output_list[branch_index]
             for index, name in enumerate(names):
                 input_sample = inputs[index : index + 1]
                 target_sample = targets[index : index + 1]
@@ -49,9 +63,15 @@ class Evaluator:
                         branch_metrics = self.metric_runner.evaluate_pair(branch_output[index : index + 1], target_sample)
                         aggregated[f"psnr_branch_{branch_index}"].append(branch_metrics["psnr_256"])
                 if self.config.save_images and self.prediction_dir is not None:
+                    input_uint8 = tensor_to_uint8(input_sample)
+                    output_uint8 = tensor_to_uint8(output_sample)
+                    target_uint8 = tensor_to_uint8(target_sample)
                     canvas = np.concatenate(
-                        [tensor_to_uint8(input_sample), tensor_to_uint8(output_sample), tensor_to_uint8(target_sample)],
+                        [input_uint8, output_uint8, target_uint8],
                         axis=1,
                     )
-                    Image.fromarray(canvas.astype(np.uint8)).save(self.prediction_dir / name)
+                    Image.fromarray(output_uint8.astype(np.uint8)).save(self.prediction_dir / "output" / name)
+                    Image.fromarray(input_uint8.astype(np.uint8)).save(self.prediction_dir / "input" / name)
+                    Image.fromarray(target_uint8.astype(np.uint8)).save(self.prediction_dir / "target" / name)
+                    Image.fromarray(canvas.astype(np.uint8)).save(self.prediction_dir / "comparison" / name)
         return {key: float(np.mean(values)) for key, values in aggregated.items()}

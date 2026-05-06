@@ -15,6 +15,28 @@ def _infer_color_cast(channel_means: torch.Tensor) -> str:
     return "a relatively balanced color distribution"
 
 
+def _infer_degradation_tags(image: torch.Tensor, mask: torch.Tensor) -> list[str]:
+    channel_means = image.mean(dim=(1, 2))
+    red, green, blue = [float(value) for value in channel_means]
+    brightness = float(image.mean().item())
+    contrast = float(image.std().item())
+    foreground_ratio = float(mask.mean().item())
+    tags = []
+    if blue - red > 0.03:
+        tags.append("blue_cast")
+    if green - red > 0.03:
+        tags.append("green_cast")
+    if brightness < 0.35:
+        tags.append("low_light")
+    if contrast < 0.16:
+        tags.append("haze_scattering")
+    if foreground_ratio < 0.2:
+        tags.append("small_foreground")
+    if not tags:
+        tags.append("clear_balanced")
+    return tags
+
+
 def _infer_contrast(std_value: float) -> str:
     if std_value < 0.12:
         return "very low contrast"
@@ -48,8 +70,10 @@ def build_underwater_prompt(image: torch.Tensor, mask: torch.Tensor) -> str:
     channel_means = image.mean(dim=(1, 2))
     brightness = float(image.mean().item())
     contrast = float(image.std().item())
+    degradation_tags = ", ".join(_infer_degradation_tags(image, mask))
     prompt = (
         "Enhance this underwater image with natural color restoration and clear structure. "
+        f"Degradation tags: {degradation_tags}. "
         f"The scene shows {_infer_foreground(mask)}, {_infer_brightness(brightness)}, "
         f"{_infer_contrast(contrast)}, and {_infer_color_cast(channel_means)}. "
         "Recover foreground detail, improve visibility, suppress haze and scattering, "

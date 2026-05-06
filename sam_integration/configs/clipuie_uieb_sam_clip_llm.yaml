@@ -1,5 +1,5 @@
 experiment:
-  name: clipuie_uieb_sam_clip_llm
+  name: clipuie_final
   seed: 42
   output_dir: artifacts
 
@@ -21,8 +21,16 @@ model:
   n_feat: 32
   n_rcb: 2
   chan_factor: 2
-  bias: true
   use_sam_mask: true
+  use_dual_region_branch: true
+  region_fusion_strength: 0.2
+  multimodal_aux_strength: 0.02
+  use_multimodal_initial_condition: false
+  use_fg_bg_decoder: true
+  fg_bg_decoder_strength: 0.05
+  use_frequency_refinement: false
+  frequency_refinement_strength: 0.0
+  use_physical_head: false
 
 multimodal:
   enabled: true
@@ -41,26 +49,37 @@ optimizer:
   betas: [0.9, 0.999]
 
 scheduler:
-  generator_milestones: [25, 50, 75, 100]
+  generator_milestones: [40, 80, 140, 180]
   generator_gamma: 0.5
-  router_milestones: [25, 50, 75, 100]
+  router_milestones: [40, 80, 140, 180]
   router_gamma: 0.3
 
 training:
-  epochs: 400
+  epochs: 200
   route_start_epoch: 0
   checkpoint_interval: 20
   validate_on: val
   pretrained_checkpoint: null
+  resume_checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/latest.pth
   strict_load: false
   lambda_style: 5.0
   lambda_route: 1.0
   lambda_foreground: 0.2
   lambda_background: 0.05
+  lambda_physical: 0.0
+  lambda_lab: 0.0
+  lambda_histogram: 0.0
+  lambda_boundary: 0.0
+  lambda_foreground_texture: 0.0
+  route_score_psnr_weight: 0.9
+  route_score_ssim_weight: 0.1
+  route_score_color_weight: 0.0
 
 evaluation:
-  checkpoint: artifacts/clipuie_uieb_sam_clip_llm/checkpoints/runs/20260421-205953/best.pth
-  save_images: false
+  checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/best.pth
+  save_images: true
+  hard_route: true
+  output_branch_index: 1
   compute_uiqm: true
   compute_uciqe: true
   compute_branch_metrics: false

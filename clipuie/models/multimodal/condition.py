@@ -45,11 +45,11 @@ class MultimodalConditionAdapter(nn.Module):
 
         clip_dim = int(self.clip_model.config.projection_dim)
         llm_dim = int(self.llm_model.config.hidden_size)
-        input_dim = clip_dim * 2 + llm_dim + 4
+        input_dim = clip_dim * 2 + llm_dim + 12
         self.clip_image_norm = nn.LayerNorm(clip_dim)
         self.clip_text_norm = nn.LayerNorm(clip_dim)
         self.llm_norm = nn.LayerNorm(llm_dim)
-        self.stats_norm = nn.LayerNorm(4)
+        self.stats_norm = nn.LayerNorm(12)
         self.fusion = nn.Sequential(
             nn.Linear(input_dim, config.adapter_hidden_dim),
             nn.GELU(),
@@ -150,11 +150,17 @@ class MultimodalConditionAdapter(nn.Module):
                 llm_features = self._masked_mean_pool(llm_hidden_states, llm_inputs["attention_mask"])
         llm_features = self.llm_norm(llm_features)
 
+        channel_mean = images.mean(dim=(2, 3), keepdim=False)
+        channel_std = images.std(dim=(2, 3), keepdim=False)
         image_mean = images.mean(dim=(1, 2, 3), keepdim=False).unsqueeze(1)
         image_std = images.std(dim=(1, 2, 3), keepdim=False).unsqueeze(1)
         mask_mean = masks.mean(dim=(1, 2, 3), keepdim=False).unsqueeze(1)
         mask_std = masks.std(dim=(1, 2, 3), keepdim=False).unsqueeze(1)
-        stats = torch.cat([image_mean, image_std, mask_mean, mask_std], dim=1)
+        red_mean = channel_mean[:, 0:1]
+        green_mean = channel_mean[:, 1:2]
+        blue_mean = channel_mean[:, 2:3]
+        color_offsets = torch.cat([blue_mean - red_mean, green_mean - red_mean], dim=1)
+        stats = torch.cat([channel_mean, channel_std, image_mean, image_std, mask_mean, mask_std, color_offsets], dim=1)
         stats = self.stats_norm(stats)
 
         fused = torch.cat([clip_image_features, clip_text_features, llm_features, stats], dim=1)

@@ -1,3 +1,3 @@
-from .composite import CompositeReconstructionLoss, select_best_outputs
+from .composite import CompositeReconstructionLoss, LabColorConsistencyLoss, SoftHistogramLoss, select_best_outputs
 
-__all__ = ["CompositeReconstructionLoss", "select_best_outputs"]
+__all__ = ["CompositeReconstructionLoss", "LabColorConsistencyLoss", "SoftHistogramLoss", "select_best_outputs"]

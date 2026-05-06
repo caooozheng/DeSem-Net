@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +35,17 @@ class ModelSection:
     chan_factor: int = 2
     bias: bool = True
     use_sam_mask: bool = False
+    use_dual_region_branch: bool = False
+    region_branch_rcb: int = 1
+    region_fusion_strength: float = 0.2
+    multimodal_aux_strength: float = 0.03
+    use_multimodal_initial_condition: bool = False
+    use_fg_bg_decoder: bool = False
+    fg_bg_decoder_blocks: int = 1
+    fg_bg_decoder_strength: float = 0.1
+    use_frequency_refinement: bool = False
+    frequency_refinement_strength: float = 0.05
+    use_physical_head: bool = False
 
 
 @dataclass
@@ -72,17 +83,28 @@ class TrainingSection:
     checkpoint_interval: int = 20
     validate_on: str = "val"
     pretrained_checkpoint: Optional[str] = None
+    resume_checkpoint: Optional[str] = None
     strict_load: bool = False
     lambda_style: float = 10.0
     lambda_route: float = 1.0
     lambda_foreground: float = 0.0
     lambda_background: float = 0.0
+    lambda_physical: float = 0.0
+    lambda_lab: float = 0.0
+    lambda_histogram: float = 0.0
+    lambda_boundary: float = 0.0
+    lambda_foreground_texture: float = 0.0
+    route_score_psnr_weight: float = 0.7
+    route_score_ssim_weight: float = 0.2
+    route_score_color_weight: float = 0.1
 
 
 @dataclass
 class EvaluationSection:
     checkpoint: Optional[str] = None
     save_images: bool = False
+    hard_route: bool = False
+    output_branch_index: Optional[int] = None
     compute_uiqm: bool = True
     compute_uciqe: bool = True
     compute_branch_metrics: bool = True
@@ -115,18 +137,25 @@ def _load_yaml_module() -> Any:
     return yaml
 
 
+def _build_section(section_type: type[Any], values: dict[str, Any] | None) -> Any:
+    if not values:
+        return section_type()
+    allowed_keys = {item.name for item in fields(section_type)}
+    return section_type(**{key: value for key, value in values.items() if key in allowed_keys})
+
+
 def load_config(path: str | Path) -> ExperimentConfig:
     yaml = _load_yaml_module()
     with Path(path).open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle)
     return ExperimentConfig(
-        experiment=ExperimentSection(**raw["experiment"]),
-        dataset=DatasetSection(**raw["dataset"]),
-        model=ModelSection(**raw.get("model", {})),
-        multimodal=MultimodalSection(**raw.get("multimodal", {})),
-        optimizer=OptimizerSection(**raw.get("optimizer", {})),
-        scheduler=SchedulerSection(**raw.get("scheduler", {})),
-        training=TrainingSection(**raw.get("training", {})),
-        evaluation=EvaluationSection(**raw.get("evaluation", {})),
-        runtime=RuntimeSection(**raw.get("runtime", {})),
+        experiment=_build_section(ExperimentSection, raw["experiment"]),
+        dataset=_build_section(DatasetSection, raw["dataset"]),
+        model=_build_section(ModelSection, raw.get("model", {})),
+        multimodal=_build_section(MultimodalSection, raw.get("multimodal", {})),
+        optimizer=_build_section(OptimizerSection, raw.get("optimizer", {})),
+        scheduler=_build_section(SchedulerSection, raw.get("scheduler", {})),
+        training=_build_section(TrainingSection, raw.get("training", {})),
+        evaluation=_build_section(EvaluationSection, raw.get("evaluation", {})),
+        runtime=_build_section(RuntimeSection, raw.get("runtime", {})),
     )

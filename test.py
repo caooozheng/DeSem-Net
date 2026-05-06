@@ -8,6 +8,7 @@ import torch
 from clipuie.config import load_config
 from clipuie.data import build_dataloaders
 from clipuie.engine import Evaluator
+from clipuie.engine.checkpoint import load_model_state
 from clipuie.models import build_model
 from clipuie.utils import create_run_directories, resolve_device, seed_everything
 
@@ -24,12 +25,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu", type=int, default=1, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
     parser.add_argument("--checkpoint", default=None, help="Path to the checkpoint file. Overrides the YAML setting.")
     parser.add_argument("--split", default="test", choices=["val", "test"], help="Evaluation split.")
+    parser.add_argument("--save-images", action="store_true", help="Save output and comparison images for visual inspection.")
+    parser.add_argument("--soft-route", action="store_true", help="Use soft routing during evaluation instead of config hard_route.")
+    parser.add_argument("--output-branch", type=int, default=None, help="Use a fixed branch as the final output, for example 1 for branch_1.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
+    if args.save_images:
+        config.evaluation.save_images = True
+    if args.soft_route:
+        config.evaluation.hard_route = False
+    if args.output_branch is not None:
+        config.evaluation.output_branch_index = args.output_branch
     seed_everything(config.experiment.seed)
     requested_device = args.device or (f"cuda:{args.gpu}" if args.gpu is not None else config.runtime.device)
     device = resolve_device(requested_device)
@@ -44,10 +54,33 @@ def main() -> None:
         raise ValueError("No checkpoint configured. Set evaluation.checkpoint or training.pretrained_checkpoint in YAML, or pass --checkpoint.")
 
     model = build_model(config.model, config.multimodal).to(device)
-    state_dict = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(state_dict, strict=False)
+    print(f"Loading checkpoint: {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    if isinstance(checkpoint, dict):
+        checkpoint_meta = {
+            key: checkpoint[key]
+            for key in ("epoch", "run_id", "best_psnr")
+            if key in checkpoint
+        }
+        if checkpoint_meta:
+            print(f"Checkpoint metadata: {checkpoint_meta}")
+    load_result, skipped_keys = load_model_state(model, checkpoint, strict=config.training.strict_load)
+    if load_result.missing_keys or load_result.unexpected_keys:
+        print(
+            "Checkpoint key mismatch: "
+            f"missing={len(load_result.missing_keys)}, unexpected={len(load_result.unexpected_keys)}"
+        )
+        if load_result.missing_keys:
+            print(f"Missing keys sample: {load_result.missing_keys[:10]}")
+        if load_result.unexpected_keys:
+            print(f"Unexpected keys sample: {load_result.unexpected_keys[:10]}")
+        if skipped_keys:
+            print(f"Skipped shape-mismatched keys sample: {skipped_keys[:10]}")
     evaluator = Evaluator(model, device, config.evaluation, run_dirs["predictions"])
-    print(evaluator.evaluate(loaders[split]))
+    metrics = evaluator.evaluate(loaders[split])
+    print(metrics)
+    if config.evaluation.save_images:
+        print(f"Saved predictions to: {run_dirs['predictions']}")
 
 
 if __name__ == "__main__":
