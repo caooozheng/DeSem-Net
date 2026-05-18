@@ -35,14 +35,20 @@ class Evaluator:
             masks = batch["mask"].to(self.device)
             names = batch["name"]
             prompts = list(batch["prompt"])
-            outputs, _, output_list = self.model.forward_route(
+            needs_branch_outputs = self.config.compute_branch_metrics or self.config.output_branch_index is not None
+            route_result = self.model.forward_route(
                 inputs,
                 masks,
                 prompts,
                 return_logits=True,
-                return_proc_outs=True,
+                return_proc_outs=needs_branch_outputs,
                 hard_route=self.config.hard_route,
             )
+            if needs_branch_outputs:
+                outputs, _, output_list = route_result
+            else:
+                outputs, _ = route_result
+                output_list = []
             if self.config.output_branch_index is not None:
                 branch_index = int(self.config.output_branch_index)
                 if branch_index < 0 or branch_index >= len(output_list):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -66,7 +67,12 @@ class ClipUIETrainer:
         self.start_epoch = 0
         self.best_psnr = float("-inf")
         self.best_metrics: dict[str, float] = {}
+        self.use_ema = bool(config.training.use_ema)
+        self.ema_decay = float(config.training.ema_decay)
+        self.ema_state: dict[str, torch.Tensor] | None = None
         self._load_training_state()
+        if self.use_ema and self.ema_state is None:
+            self._init_ema()
 
     def _load_training_state(self) -> None:
         if self.config.training.resume_checkpoint:
@@ -77,6 +83,11 @@ class ClipUIETrainer:
             checkpoint_best_psnr = float(checkpoint.get("best_psnr", float("-inf")))
             checkpoint_best_metrics = dict(checkpoint.get("best_metrics", {}))
             load_result, skipped_keys = load_model_state(self.model, checkpoint, strict=self.config.training.strict_load)
+            if self.use_ema and "ema_state_dict" in checkpoint:
+                self.ema_state = {
+                    key: value.detach().clone().cpu()
+                    for key, value in checkpoint["ema_state_dict"].items()
+                }
             if load_result.missing_keys or load_result.unexpected_keys:
                 print(
                     "Checkpoint model key mismatch: "
@@ -128,18 +139,58 @@ class ClipUIETrainer:
             if skipped_keys:
                 print(f"Skipped shape-mismatched pretrained keys sample: {skipped_keys[:10]}")
 
-    def _checkpoint_state(self, epoch: int) -> dict:
-        return {
+    def _init_ema(self) -> None:
+        self.ema_state = {
+            key: value.detach().clone().cpu()
+            for key, value in self.model.state_dict().items()
+        }
+
+    @torch.no_grad()
+    def _update_ema(self) -> None:
+        if not self.use_ema or self.ema_state is None:
+            return
+        model_state = self.model.state_dict()
+        for key, value in model_state.items():
+            value_cpu = value.detach().cpu()
+            if not value.is_floating_point():
+                self.ema_state[key] = value_cpu.clone()
+                continue
+            self.ema_state[key].mul_(self.ema_decay).add_(value_cpu, alpha=1.0 - self.ema_decay)
+
+    @contextmanager
+    def _ema_scope(self):
+        if not self.use_ema or self.ema_state is None:
+            yield
+            return
+        raw_state = {
+            key: value.detach().clone().cpu()
+            for key, value in self.model.state_dict().items()
+        }
+        self.model.load_state_dict(self.ema_state, strict=False)
+        try:
+            yield
+        finally:
+            self.model.load_state_dict(raw_state, strict=False)
+
+    def _checkpoint_state(self, epoch: int, use_ema_model: bool = False) -> dict:
+        current_state = self.model.state_dict()
+        model_state = self.ema_state if use_ema_model and self.ema_state is not None else current_state
+        state = {
             "epoch": epoch,
             "run_id": self.run_id,
             "best_psnr": self.best_psnr,
             "best_metrics": self.best_metrics,
-            "model_state_dict": self.model.state_dict(),
+            "model_state_dict": {key: value.detach().cpu().clone() for key, value in model_state.items()},
             "optimizer_g_state_dict": self.optimizer_g.state_dict(),
             "optimizer_router_state_dict": self.optimizer_router.state_dict(),
             "scheduler_g_state_dict": self.scheduler_g.state_dict(),
             "scheduler_router_state_dict": self.scheduler_router.state_dict(),
         }
+        if self.ema_state is not None:
+            state["ema_state_dict"] = {key: value.detach().cpu().clone() for key, value in self.ema_state.items()}
+        if use_ema_model and self.ema_state is not None:
+            state["raw_model_state_dict"] = {key: value.detach().cpu().clone() for key, value in current_state.items()}
+        return state
 
     def _region_loss(self, prediction: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         foreground_weight = float(self.config.training.lambda_foreground)
@@ -238,13 +289,54 @@ class ClipUIETrainer:
             scores.append(psnr_weight * psnr_score + ssim_weight * ssim_score + color_weight * color_score)
         return torch.argmax(torch.stack(scores, dim=1), dim=1)
 
+    def _route_targets_from_outputs(self, output_list: list[torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            return self._select_route_targets([output.detach() for output in output_list], targets)
+
+    def _branch_supervision_loss(self, output_list: list[torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
+        branch_weight = float(self.config.training.lambda_branch_supervision)
+        if branch_weight <= 0 or not output_list:
+            return targets.new_tensor(0.0)
+        weights = targets.new_tensor([0.25, 1.0, 0.5])
+        if len(output_list) != int(weights.numel()):
+            weights = torch.ones(len(output_list), device=targets.device, dtype=targets.dtype)
+        weights = weights / weights.sum().clamp_min(1e-6)
+        total = targets.new_tensor(0.0)
+        for branch_output, weight in zip(output_list, weights):
+            total = total + weight * self.loss_fn(branch_output, targets)
+        return branch_weight * total
+
+    def _psnr_mse_loss(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        mse_weight = float(self.config.training.lambda_psnr_mse)
+        if mse_weight <= 0:
+            return prediction.new_tensor(0.0)
+        return mse_weight * F.mse_loss(prediction, target)
+
+    def _ssim_loss(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        ssim_weight = float(self.config.training.lambda_ssim_loss)
+        if ssim_weight <= 0:
+            return prediction.new_tensor(0.0)
+        return ssim_weight * (1.0 - compute_ssim_batch_torch(prediction, target).mean())
+
+    def _select_training_output(self, route_output: torch.Tensor, output_list: list[torch.Tensor]) -> torch.Tensor:
+        branch_index = self.config.evaluation.output_branch_index
+        if branch_index is None or not output_list:
+            return route_output
+        branch_index = int(branch_index)
+        if branch_index < 0 or branch_index >= len(output_list):
+            return route_output
+        return output_list[branch_index]
+
     def fit(self, train_loader: torch.utils.data.DataLoader, eval_loader: torch.utils.data.DataLoader) -> dict[str, float]:
         for epoch in range(self.start_epoch, self.config.training.epochs):
             train_metrics = self._train_one_epoch(train_loader, epoch)
             if self.device.type == "cuda":
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
-            eval_metrics = self.evaluator.evaluate(eval_loader)
+            with self._ema_scope():
+                eval_metrics = self.evaluator.evaluate(eval_loader)
             if self.device.type == "cuda":
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
             self.scheduler_g.step()
             self.scheduler_router.step()
@@ -254,7 +346,7 @@ class ClipUIETrainer:
             if eval_metrics["psnr_256"] > self.best_psnr:
                 self.best_psnr = eval_metrics["psnr_256"]
                 self.best_metrics = eval_metrics
-                best_state = self._checkpoint_state(epoch)
+                best_state = self._checkpoint_state(epoch, use_ema_model=self.use_ema)
                 save_checkpoint(best_state, self.run_dirs["checkpoints"] / "best.pth")
                 save_checkpoint(best_state, self.run_checkpoint_dir / "best.pth")
             if self.config.training.checkpoint_interval > 0 and epoch % self.config.training.checkpoint_interval == 0:
@@ -273,28 +365,26 @@ class ClipUIETrainer:
             self.optimizer_g.zero_grad(set_to_none=True)
             self.optimizer_router.zero_grad(set_to_none=True)
 
-            recon_input = self.model.forward_recon(inputs, masks, prompts)
-            recon_input_loss = self.loss_fn(recon_input, inputs)
-            recon_input_loss = recon_input_loss + self._region_loss(recon_input, inputs, masks)
-            recon_input_loss.backward()
+            recon_weight = float(self.config.training.lambda_recon)
+            if recon_weight > 0:
+                recon_input = self.model.forward_recon(inputs, masks, prompts)
+                recon_input_loss = recon_weight * (self.loss_fn(recon_input, inputs) + self._region_loss(recon_input, inputs, masks))
+                recon_input_loss.backward()
 
-            recon_target = self.model.forward_recon(targets, masks, prompts)
-            recon_target_loss = self.loss_fn(recon_target, targets)
-            recon_target_loss = recon_target_loss + self._region_loss(recon_target, targets, masks)
-            recon_target_loss.backward()
-
-            output, style_loss, aux = self.model.forward_style_loss(inputs, targets, masks, prompts, return_aux=True)
-            routed_loss = self.loss_fn(output, targets) + style_loss * self.config.training.lambda_style
-            routed_loss = routed_loss + self._region_loss(output, targets, masks)
-            routed_loss = routed_loss + self._final_regularization(output, targets, inputs, masks, aux)
-            routed_loss.backward()
+                recon_target = self.model.forward_recon(targets, masks, prompts)
+                recon_target_loss = recon_weight * (self.loss_fn(recon_target, targets) + self._region_loss(recon_target, targets, masks))
+                recon_target_loss.backward()
 
             route_active = epoch >= self.config.training.route_start_epoch
-            route_report_loss = routed_loss
-            if route_active:
-                with torch.no_grad():
-                    output_candidates = self.model.forward_candidates(inputs, masks, prompts)
-                    max_idx = self._select_route_targets(output_candidates, targets)
+            if not route_active:
+                output, style_loss, aux = self.model.forward_style_loss(inputs, targets, masks, prompts, return_aux=True)
+                route_report_loss = self.loss_fn(output, targets) + style_loss * self.config.training.lambda_style
+                route_report_loss = route_report_loss + self._region_loss(output, targets, masks)
+                route_report_loss = route_report_loss + self._final_regularization(output, targets, inputs, masks, aux)
+                route_report_loss = route_report_loss + self._psnr_mse_loss(output, targets)
+                route_report_loss = route_report_loss + self._ssim_loss(output, targets)
+                route_report_loss.backward()
+            else:
                 output, logits, style_loss, output_list, aux = self.model.forward_route_style_loss(
                     inputs,
                     targets,
@@ -304,17 +394,25 @@ class ClipUIETrainer:
                     return_proc_outs=True,
                     return_aux=True,
                 )
+                max_idx = self._route_targets_from_outputs(output_list, targets)
+                training_output = self._select_training_output(output, output_list)
                 route_loss = F.cross_entropy(logits, max_idx)
-                route_report_loss = self.loss_fn(output, targets) + route_loss * self.config.training.lambda_route + style_loss * self.config.training.lambda_style
-                route_report_loss = route_report_loss + self._region_loss(output, targets, masks)
-                route_report_loss = route_report_loss + self._final_regularization(output, targets, inputs, masks, aux)
+                route_report_loss = self.loss_fn(training_output, targets) + route_loss * self.config.training.lambda_route
+                route_report_loss = route_report_loss + self._region_loss(training_output, targets, masks)
+                route_report_loss = route_report_loss + self._final_regularization(training_output, targets, inputs, masks, aux)
+                route_report_loss = route_report_loss + self._psnr_mse_loss(training_output, targets)
+                route_report_loss = route_report_loss + self._ssim_loss(training_output, targets)
+                route_report_loss = route_report_loss + self._branch_supervision_loss(output_list, targets)
                 best_outputs, valid_targets = select_best_outputs(output_list, targets, max_idx)
                 if best_outputs is not None:
-                    route_report_loss = route_report_loss + self.loss_fn(best_outputs, valid_targets)
+                    route_report_loss = route_report_loss + 0.25 * self.loss_fn(best_outputs, valid_targets)
+                    route_report_loss = route_report_loss + 0.25 * self._psnr_mse_loss(best_outputs, valid_targets)
+                    route_report_loss = route_report_loss + 0.25 * self._ssim_loss(best_outputs, valid_targets)
                 route_report_loss.backward()
 
             if route_active:
                 self.optimizer_router.step()
             self.optimizer_g.step()
+            self._update_ema()
             running_loss += float(route_report_loss.detach().cpu().item())
         return {"loss": running_loss / max(1, len(train_loader))}

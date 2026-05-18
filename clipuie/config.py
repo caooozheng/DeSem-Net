@@ -38,6 +38,8 @@ class ModelSection:
     use_dual_region_branch: bool = False
     region_branch_rcb: int = 1
     region_fusion_strength: float = 0.2
+    use_rsdc: bool = False
+    rsdc_strength: float = 0.1
     multimodal_aux_strength: float = 0.03
     use_multimodal_initial_condition: bool = False
     use_fg_bg_decoder: bool = False
@@ -45,6 +47,16 @@ class ModelSection:
     fg_bg_decoder_strength: float = 0.1
     use_frequency_refinement: bool = False
     frequency_refinement_strength: float = 0.05
+    use_wavelet_refinement: bool = False
+    wavelet_refinement_strength: float = 0.05
+    use_transformer_context: bool = False
+    transformer_context_strength: float = 0.05
+    use_white_balance_correction: bool = False
+    white_balance_strength: float = 0.08
+    use_residual_output: bool = False
+    residual_output_strength: float = 0.8
+    use_output_refinement: bool = False
+    output_refinement_strength: float = 0.1
     use_physical_head: bool = False
 
 
@@ -85,6 +97,9 @@ class TrainingSection:
     pretrained_checkpoint: Optional[str] = None
     resume_checkpoint: Optional[str] = None
     strict_load: bool = False
+    use_ema: bool = False
+    ema_decay: float = 0.999
+    lambda_recon: float = 1.0
     lambda_style: float = 10.0
     lambda_route: float = 1.0
     lambda_foreground: float = 0.0
@@ -94,6 +109,9 @@ class TrainingSection:
     lambda_histogram: float = 0.0
     lambda_boundary: float = 0.0
     lambda_foreground_texture: float = 0.0
+    lambda_branch_supervision: float = 0.0
+    lambda_psnr_mse: float = 0.0
+    lambda_ssim_loss: float = 0.0
     route_score_psnr_weight: float = 0.7
     route_score_ssim_weight: float = 0.2
     route_score_color_weight: float = 0.1

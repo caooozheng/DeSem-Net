@@ -75,12 +75,9 @@ def select_best_outputs(
     ground_truth: torch.Tensor,
     max_indices: torch.Tensor,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-    valid_mask = max_indices != 0
-    if valid_mask.sum().item() == 0:
+    if not output_list:
         return None, None
     outputs_cat = torch.stack(output_list, dim=1)
-    valid_outputs = outputs_cat[valid_mask]
-    valid_indices = max_indices[valid_mask]
-    gather_index = valid_indices.view(-1, 1, 1, 1, 1).expand(-1, 1, *ground_truth.shape[1:])
-    best_output = torch.gather(valid_outputs, dim=1, index=gather_index).squeeze(1)
-    return best_output, ground_truth[valid_mask]
+    gather_index = max_indices.view(-1, 1, 1, 1, 1).expand(-1, 1, *ground_truth.shape[1:])
+    best_output = torch.gather(outputs_cat, dim=1, index=gather_index).squeeze(1)
+    return best_output, ground_truth

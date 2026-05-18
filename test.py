@@ -15,19 +15,21 @@ from clipuie.utils import create_run_directories, resolve_device, seed_everythin
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate ClipUIe experiments.")
-    default_config = Path(__file__).resolve().parent / "sam_integration/configs" / "clipuie_uieb_sam_clip_llm.yaml"
+    default_config = Path(__file__).resolve().parent / "sam_integration/configs" / "clipuie_euvp_scene_sam_clip_llm.yaml"
     parser.add_argument(
         "--config",
         default=str(default_config),
         help=f"Path to a YAML config file. Defaults to {default_config}.",
     )
     parser.add_argument("--device", default=None, help="Device override, for example `cpu`, `cuda`, or `cuda:1`.")
-    parser.add_argument("--gpu", type=int, default=1, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
+    parser.add_argument("--gpu", type=int, default=2, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
     parser.add_argument("--checkpoint", default=None, help="Path to the checkpoint file. Overrides the YAML setting.")
     parser.add_argument("--split", default="test", choices=["val", "test"], help="Evaluation split.")
     parser.add_argument("--save-images", action="store_true", help="Save output and comparison images for visual inspection.")
     parser.add_argument("--soft-route", action="store_true", help="Use soft routing during evaluation instead of config hard_route.")
     parser.add_argument("--output-branch", type=int, default=None, help="Use a fixed branch as the final output, for example 1 for branch_1.")
+    parser.add_argument("--route-output", action="store_true", help="Use the model route output instead of a fixed output branch from the config.")
+    parser.add_argument("--branch-metrics", action="store_true", help="Temporarily report per-branch PSNR metrics.")
     return parser.parse_args()
 
 
@@ -38,8 +40,12 @@ def main() -> None:
         config.evaluation.save_images = True
     if args.soft_route:
         config.evaluation.hard_route = False
+    if args.route_output:
+        config.evaluation.output_branch_index = None
     if args.output_branch is not None:
         config.evaluation.output_branch_index = args.output_branch
+    if args.branch_metrics:
+        config.evaluation.compute_branch_metrics = True
     seed_everything(config.experiment.seed)
     requested_device = args.device or (f"cuda:{args.gpu}" if args.gpu is not None else config.runtime.device)
     device = resolve_device(requested_device)

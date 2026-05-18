@@ -9,7 +9,7 @@ def batched_index_select(values: torch.Tensor, indices: torch.Tensor) -> torch.T
     last_dim = values.shape[-1]
     return values.gather(1, indices[:, :, None]).expand(-1, -1, last_dim)
 
-
+# NonLocalSparseAttention
 class NonLocalSparseAttention(nn.Module):
     def __init__(
         self,
