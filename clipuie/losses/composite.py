@@ -53,21 +53,33 @@ class SoftHistogramLoss(nn.Module):
 
 
 class CompositeReconstructionLoss(nn.Module):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        l1_weight: float = 0.8,
+        l2_weight: float = 0.2,
+        perceptual_weight: float = 0.3,
+        gradient_weight: float = 0.1,
+    ) -> None:
         super().__init__()
-        self.pixel = WeightedPixelLoss()
+        self.pixel = WeightedPixelLoss(l1_weight=l1_weight, l2_weight=l2_weight)
         self.perceptual = VGG19PerceptualLoss()
         self.gradient = nn.L1Loss()
         self.get_gradient = GetGradientNopadding()
+        self.perceptual_weight = perceptual_weight
+        self.gradient_weight = gradient_weight
 
     def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         pixel_loss = self.pixel(prediction, target)
-        perceptual_loss = self.perceptual(prediction, target)
-        gradient_loss = self.gradient(
-            self.get_gradient(prediction, gray=False),
-            self.get_gradient(target, gray=False),
-        )
-        return pixel_loss + 0.3 * perceptual_loss + 0.1 * gradient_loss
+        total = pixel_loss
+        if self.perceptual_weight > 0:
+            total = total + self.perceptual_weight * self.perceptual(prediction, target)
+        if self.gradient_weight > 0:
+            gradient_loss = self.gradient(
+                self.get_gradient(prediction, gray=False),
+                self.get_gradient(target, gray=False),
+            )
+            total = total + self.gradient_weight * gradient_loss
+        return total
 
 
 def select_best_outputs(

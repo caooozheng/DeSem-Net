@@ -12,11 +12,11 @@ from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate SAM masks for EUVP-Scene datasets.")
-    parser.add_argument("--dataset-root",  default="../../Clip-UIE/UnderwaterDatasets/EUVP-Scene", help="Dataset root that contains train/val/test.")
+    parser = argparse.ArgumentParser(description="Generate SAM masks for EUVP-Dark datasets.")
+    parser.add_argument("--dataset-root",  default="../../Clip-UIE/UnderwaterDatasets/EUVP-Dark", help="Dataset root that contains train/val/test.")
     parser.add_argument("--sam-checkpoint", default="../sam_integration/weight/sam_vit_h_4b8939.pth", help="Path to the SAM checkpoint.")
     parser.add_argument("--model-type", default="vit_h", choices=["vit_h", "vit_l", "vit_b"])
-    parser.add_argument("--gpu", type=int, default=1, help="CUDA GPU index. Falls back to CPU when CUDA is unavailable.")
+    parser.add_argument("--gpu", type=int, default=2, help="CUDA GPU index. Falls back to CPU when CUDA is unavailable.")
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"], help="Dataset splits to process.")
     parser.add_argument("--output-dir-name", default="mask_sam", help="Mask directory name created under each split.")
     parser.add_argument("--top-k", type=int, default=5, help="Number of top masks to merge.")

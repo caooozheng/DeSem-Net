@@ -57,10 +57,16 @@ class ClipUIETrainer:
         self.run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.run_checkpoint_dir = run_dirs["checkpoint_runs"] / self.run_id
         self.run_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.loss_fn = CompositeReconstructionLoss().to(device)
+        self.loss_fn = CompositeReconstructionLoss(
+            l1_weight=config.training.loss_l1_weight,
+            l2_weight=config.training.loss_l2_weight,
+            perceptual_weight=config.training.loss_perceptual_weight,
+            gradient_weight=config.training.loss_gradient_weight,
+        ).to(device)
         self.lab_color_loss = LabColorConsistencyLoss().to(device)
         self.histogram_loss = SoftHistogramLoss().to(device)
         self.get_gradient = GetGradientNopadding().to(device)
+        self._apply_trainable_filter()
         self._build_optimizers()
         eval_config = replace(config.evaluation, save_images=False)
         self.evaluator = Evaluator(model=self.model, device=device, config=eval_config, prediction_dir=run_dirs["predictions"])
@@ -70,9 +76,28 @@ class ClipUIETrainer:
         self.use_ema = bool(config.training.use_ema)
         self.ema_decay = float(config.training.ema_decay)
         self.ema_state: dict[str, torch.Tensor] | None = None
+        self._active_phase_index: int | None = None
         self._load_training_state()
         if self.use_ema and self.ema_state is None:
             self._init_ema()
+
+    def _apply_trainable_filter(self) -> None:
+        keywords = list(self.config.training.trainable_keywords)
+        if not keywords:
+            return
+        trainable_count = 0
+        frozen_count = 0
+        for name, parameter in self.model.named_parameters():
+            is_trainable = any(keyword in name for keyword in keywords)
+            parameter.requires_grad_(is_trainable)
+            if is_trainable:
+                trainable_count += parameter.numel()
+            else:
+                frozen_count += parameter.numel()
+        print(
+            "Applied trainable parameter filter: "
+            f"trainable={trainable_count:,}, frozen={frozen_count:,}, keywords={keywords}"
+        )
 
     def _load_training_state(self) -> None:
         if self.config.training.resume_checkpoint:
@@ -104,9 +129,11 @@ class ClipUIETrainer:
                 if model_state_changed:
                     raise ValueError("model parameters changed relative to checkpoint")
                 self.optimizer_g.load_state_dict(checkpoint["optimizer_g_state_dict"])
-                self.optimizer_router.load_state_dict(checkpoint["optimizer_router_state_dict"])
+                if self.optimizer_router is not None and "optimizer_router_state_dict" in checkpoint:
+                    self.optimizer_router.load_state_dict(checkpoint["optimizer_router_state_dict"])
                 self.scheduler_g.load_state_dict(checkpoint["scheduler_g_state_dict"])
-                self.scheduler_router.load_state_dict(checkpoint["scheduler_router_state_dict"])
+                if self.scheduler_router is not None and "scheduler_router_state_dict" in checkpoint:
+                    self.scheduler_router.load_state_dict(checkpoint["scheduler_router_state_dict"])
                 loaded_optimizer_state = True
             except (KeyError, ValueError) as exc:
                 loaded_optimizer_state = False
@@ -182,9 +209,9 @@ class ClipUIETrainer:
             "best_metrics": self.best_metrics,
             "model_state_dict": {key: value.detach().cpu().clone() for key, value in model_state.items()},
             "optimizer_g_state_dict": self.optimizer_g.state_dict(),
-            "optimizer_router_state_dict": self.optimizer_router.state_dict(),
+            "optimizer_router_state_dict": self.optimizer_router.state_dict() if self.optimizer_router is not None else None,
             "scheduler_g_state_dict": self.scheduler_g.state_dict(),
-            "scheduler_router_state_dict": self.scheduler_router.state_dict(),
+            "scheduler_router_state_dict": self.scheduler_router.state_dict() if self.scheduler_router is not None else None,
         }
         if self.ema_state is not None:
             state["ema_state_dict"] = {key: value.detach().cpu().clone() for key, value in self.ema_state.items()}
@@ -267,15 +294,72 @@ class ClipUIETrainer:
         generator_params = []
         router_params = []
         for name, parameter in self.model.named_parameters():
+            if not parameter.requires_grad:
+                continue
             if "adaptive_route" in name:
                 router_params.append(parameter)
             else:
                 generator_params.append(parameter)
         betas = tuple(self.config.optimizer.betas)
         self.optimizer_g = AdamW(generator_params, lr=self.config.optimizer.generator_lr, betas=betas, weight_decay=self.config.optimizer.weight_decay)
-        self.optimizer_router = AdamW(router_params, lr=self.config.optimizer.router_lr, betas=betas, weight_decay=self.config.optimizer.weight_decay)
+        self.optimizer_router = (
+            AdamW(router_params, lr=self.config.optimizer.router_lr, betas=betas, weight_decay=self.config.optimizer.weight_decay)
+            if router_params
+            else None
+        )
         self.scheduler_g = MultiStepLR(self.optimizer_g, milestones=self.config.scheduler.generator_milestones, gamma=self.config.scheduler.generator_gamma)
-        self.scheduler_router = MultiStepLR(self.optimizer_router, milestones=self.config.scheduler.router_milestones, gamma=self.config.scheduler.router_gamma)
+        self.scheduler_router = (
+            MultiStepLR(self.optimizer_router, milestones=self.config.scheduler.router_milestones, gamma=self.config.scheduler.router_gamma)
+            if self.optimizer_router is not None
+            else None
+        )
+
+    def _apply_phase_schedule(self, epoch: int) -> None:
+        phases = sorted(
+            list(self.config.training.phase_schedule),
+            key=lambda item: int(item.get("start_epoch", 0)),
+        )
+        active_index = None
+        active_phase = None
+        for index, phase in enumerate(phases):
+            if epoch >= int(phase.get("start_epoch", 0)):
+                active_index = index
+                active_phase = phase
+        if active_phase is None:
+            return
+
+        for key, value in active_phase.items():
+            if key in {"name", "start_epoch", "generator_lr", "router_lr"}:
+                continue
+            if hasattr(self.config.training, key):
+                setattr(self.config.training, key, value)
+
+        if "generator_lr" in active_phase:
+            for param_group in self.optimizer_g.param_groups:
+                param_group["lr"] = float(active_phase["generator_lr"])
+        if "router_lr" in active_phase and self.optimizer_router is not None:
+            for param_group in self.optimizer_router.param_groups:
+                param_group["lr"] = float(active_phase["router_lr"])
+
+        if active_index != self._active_phase_index:
+            self._active_phase_index = active_index
+            if any(
+                key in active_phase
+                for key in ("loss_l1_weight", "loss_l2_weight", "loss_perceptual_weight", "loss_gradient_weight")
+            ):
+                self.loss_fn = CompositeReconstructionLoss(
+                    l1_weight=self.config.training.loss_l1_weight,
+                    l2_weight=self.config.training.loss_l2_weight,
+                    perceptual_weight=self.config.training.loss_perceptual_weight,
+                    gradient_weight=self.config.training.loss_gradient_weight,
+                ).to(self.device)
+            phase_name = active_phase.get("name", f"phase_{active_index}")
+            generator_lr = self.optimizer_g.param_groups[0]["lr"]
+            router_lr = self.optimizer_router.param_groups[0]["lr"] if self.optimizer_router is not None else None
+            print(
+                "Activated training phase: "
+                f"{phase_name} at epoch {epoch}, generator_lr={generator_lr}, router_lr={router_lr}"
+            )
 
     def _select_route_targets(self, output_candidates: list[torch.Tensor], targets: torch.Tensor) -> torch.Tensor:
         psnr_weight = float(self.config.training.route_score_psnr_weight)
@@ -318,6 +402,18 @@ class ClipUIETrainer:
             return prediction.new_tensor(0.0)
         return ssim_weight * (1.0 - compute_ssim_batch_torch(prediction, target).mean())
 
+    def _color_mse_loss(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        color_weight = float(self.config.training.lambda_color_mse)
+        if color_weight <= 0:
+            return prediction.new_tensor(0.0)
+        prediction = prediction.clamp(0.0, 1.0)
+        target = target.clamp(0.0, 1.0)
+        pred_mean = prediction.mean(dim=(2, 3))
+        target_mean = target.mean(dim=(2, 3))
+        pred_std = prediction.std(dim=(2, 3), unbiased=False)
+        target_std = target.std(dim=(2, 3), unbiased=False)
+        return color_weight * (F.mse_loss(pred_mean, target_mean) + 0.5 * F.mse_loss(pred_std, target_std))
+
     def _select_training_output(self, route_output: torch.Tensor, output_list: list[torch.Tensor]) -> torch.Tensor:
         branch_index = self.config.evaluation.output_branch_index
         if branch_index is None or not output_list:
@@ -329,6 +425,7 @@ class ClipUIETrainer:
 
     def fit(self, train_loader: torch.utils.data.DataLoader, eval_loader: torch.utils.data.DataLoader) -> dict[str, float]:
         for epoch in range(self.start_epoch, self.config.training.epochs):
+            self._apply_phase_schedule(epoch)
             train_metrics = self._train_one_epoch(train_loader, epoch)
             if self.device.type == "cuda":
                 torch.cuda.synchronize()
@@ -339,7 +436,8 @@ class ClipUIETrainer:
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
             self.scheduler_g.step()
-            self.scheduler_router.step()
+            if self.scheduler_router is not None:
+                self.scheduler_router.step()
             latest_state = self._checkpoint_state(epoch)
             save_checkpoint(latest_state, self.run_dirs["checkpoints"] / "latest.pth")
             save_checkpoint(latest_state, self.run_checkpoint_dir / "latest.pth")
@@ -363,7 +461,8 @@ class ClipUIETrainer:
             masks = batch["mask"].to(self.device)
             prompts = list(batch["prompt"])
             self.optimizer_g.zero_grad(set_to_none=True)
-            self.optimizer_router.zero_grad(set_to_none=True)
+            if self.optimizer_router is not None:
+                self.optimizer_router.zero_grad(set_to_none=True)
 
             recon_weight = float(self.config.training.lambda_recon)
             if recon_weight > 0:
@@ -383,6 +482,7 @@ class ClipUIETrainer:
                 route_report_loss = route_report_loss + self._final_regularization(output, targets, inputs, masks, aux)
                 route_report_loss = route_report_loss + self._psnr_mse_loss(output, targets)
                 route_report_loss = route_report_loss + self._ssim_loss(output, targets)
+                route_report_loss = route_report_loss + self._color_mse_loss(output, targets)
                 route_report_loss.backward()
             else:
                 output, logits, style_loss, output_list, aux = self.model.forward_route_style_loss(
@@ -402,16 +502,19 @@ class ClipUIETrainer:
                 route_report_loss = route_report_loss + self._final_regularization(training_output, targets, inputs, masks, aux)
                 route_report_loss = route_report_loss + self._psnr_mse_loss(training_output, targets)
                 route_report_loss = route_report_loss + self._ssim_loss(training_output, targets)
+                route_report_loss = route_report_loss + self._color_mse_loss(training_output, targets)
                 route_report_loss = route_report_loss + self._branch_supervision_loss(output_list, targets)
                 best_outputs, valid_targets = select_best_outputs(output_list, targets, max_idx)
                 if best_outputs is not None:
                     route_report_loss = route_report_loss + 0.25 * self.loss_fn(best_outputs, valid_targets)
                     route_report_loss = route_report_loss + 0.25 * self._psnr_mse_loss(best_outputs, valid_targets)
                     route_report_loss = route_report_loss + 0.25 * self._ssim_loss(best_outputs, valid_targets)
+                    route_report_loss = route_report_loss + 0.25 * self._color_mse_loss(best_outputs, valid_targets)
                 route_report_loss.backward()
 
             if route_active:
-                self.optimizer_router.step()
+                if self.optimizer_router is not None:
+                    self.optimizer_router.step()
             self.optimizer_g.step()
             self._update_ema()
             running_loss += float(route_report_loss.detach().cpu().item())

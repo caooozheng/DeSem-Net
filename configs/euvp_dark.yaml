@@ -1,14 +1,14 @@
 experiment:
-  name: clipuie_uieb
+  name: euvp_dark
   seed: 42
   output_dir: artifacts
 
 dataset:
-  train_root: UnderwaterDatasets/UIEB/train
-  val_root: UnderwaterDatasets/UIEB/val
-  test_root: UnderwaterDatasets/UIEB/test
+  train_root: UnderwaterDatasets/EUVP-Dark/train
+  val_root: UnderwaterDatasets/EUVP-Dark/val
+  test_root: UnderwaterDatasets/EUVP-Dark/test
   image_size: 256
-  batch_size: 4
+  batch_size: 2
   num_workers: 4
   pin_memory: true
   mask_dir_name: mask_sam
@@ -18,7 +18,7 @@ dataset:
 model:
   name: clipuie_net
   num_branch: 3
-  n_feat: 32
+  n_feat: 40
   n_rcb: 2
   chan_factor: 2
   use_sam_mask: true
@@ -36,6 +36,12 @@ model:
   wavelet_refinement_strength: 0.0
   use_transformer_context: false
   transformer_context_strength: 0.0
+  use_white_balance_correction: true
+  white_balance_strength: 0.08
+  use_residual_output: true
+  residual_output_strength: 0.8
+  use_output_refinement: true
+  output_refinement_strength: 0.2
   use_physical_head: false
 
 multimodal:
@@ -49,43 +55,57 @@ multimodal:
 
 optimizer:
   name: adamw
-  generator_lr: 0.00005
-  router_lr: 0.00001
-  weight_decay: 0.0001
+  generator_lr: 0.000003
+  router_lr: 0.0000005
+  weight_decay: 0.00001
   betas: [0.9, 0.999]
 
 scheduler:
-  generator_milestones: [40, 80, 140, 180]
+  generator_milestones: [20, 40, 60]
   generator_gamma: 0.5
-  router_milestones: [40, 80, 140, 180]
-  router_gamma: 0.3
+  router_milestones: [20, 40, 60]
+  router_gamma: 0.5
 
 training:
-  epochs: 200
-  route_start_epoch: 20
-  checkpoint_interval: 20
+  epochs: 180
+  route_start_epoch: 0
+  checkpoint_interval: 0
   validate_on: val
   pretrained_checkpoint: null
   resume_checkpoint: null
   strict_load: false
-  lambda_style: 5.0
-  lambda_route: 1.0
-  lambda_foreground: 0.05
-  lambda_background: 0.02
+  trainable_keywords: []
+  use_ema: false
+  ema_decay: 0.999
+  lambda_recon: 0.0
+  lambda_style: 0.0
+  lambda_route: 0.02
+  lambda_foreground: 0.0
+  lambda_background: 0.0
   lambda_physical: 0.0
   lambda_lab: 0.0
   lambda_histogram: 0.0
   lambda_boundary: 0.0
   lambda_foreground_texture: 0.0
-  route_score_psnr_weight: 0.9
-  route_score_ssim_weight: 0.1
+  lambda_branch_supervision: 0.1
+  lambda_psnr_mse: 2.0
+  lambda_ssim_loss: 0.05
+  lambda_color_mse: 0.5
+  loss_l1_weight: 0.2
+  loss_l2_weight: 1.0
+  loss_perceptual_weight: 0.0
+  loss_gradient_weight: 0.02
+  route_score_psnr_weight: 1.0
+  route_score_ssim_weight: 0.0
   route_score_color_weight: 0.0
 
 evaluation:
-  checkpoint: null
+  checkpoint: artifacts/clipuie_euvp_scene_psnr30_fullfinetune/checkpoints/runs/20260523-173656/latest.pth
+  calibration_path: null
   save_images: false
   hard_route: false
-  output_branch_index: null
+  output_branch_index: 1
+  self_ensemble: false
   compute_uiqm: true
   compute_uciqe: true
   compute_branch_metrics: false

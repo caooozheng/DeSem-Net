@@ -1,12 +1,12 @@
 experiment:
-  name: clipuie_lsui
+  name: euvp_scene
   seed: 42
   output_dir: artifacts
 
 dataset:
-  train_root: UnderwaterDatasets/LSUI/train
-  val_root: UnderwaterDatasets/LSUI/val
-  test_root: UnderwaterDatasets/LSUI/test
+  train_root: UnderwaterDatasets/EUVP-Scene/train
+  val_root: UnderwaterDatasets/EUVP-Scene/val
+  test_root: UnderwaterDatasets/EUVP-Scene/test
   image_size: 256
   batch_size: 2
   num_workers: 4
@@ -38,8 +38,10 @@ model:
   transformer_context_strength: 0.0
   use_white_balance_correction: true
   white_balance_strength: 0.08
+  use_residual_output: true
+  residual_output_strength: 0.8
   use_output_refinement: true
-  output_refinement_strength: 0.12
+  output_refinement_strength: 0.2
   use_physical_head: false
 
 multimodal:
@@ -59,21 +61,25 @@ optimizer:
   betas: [0.9, 0.999]
 
 scheduler:
-  generator_milestones: [40, 80, 140, 180]
+  generator_milestones: [40, 80, 120]
   generator_gamma: 0.5
-  router_milestones: [40, 80, 140, 180]
+  router_milestones: [40, 80, 120]
   router_gamma: 0.3
 
 training:
-  epochs: 240
+  epochs: 180
   route_start_epoch: 30
-  checkpoint_interval: 20
+  checkpoint_interval: 0
   validate_on: val
   pretrained_checkpoint: null
   resume_checkpoint: null
   strict_load: false
-  lambda_style: 10.0
-  lambda_route: 0.2
+  trainable_keywords: []
+  use_ema: false
+  ema_decay: 0.999
+  lambda_recon: 0.0
+  lambda_style: 3.0
+  lambda_route: 0.05
   lambda_foreground: 0.02
   lambda_background: 0.01
   lambda_physical: 0.0
@@ -81,17 +87,56 @@ training:
   lambda_histogram: 0.0
   lambda_boundary: 0.0
   lambda_foreground_texture: 0.0
-  lambda_branch_supervision: 0.15
-  lambda_psnr_mse: 0.35
+  lambda_branch_supervision: 0.25
+  lambda_psnr_mse: 1.0
+  lambda_ssim_loss: 0.2
+  lambda_color_mse: 0.1
+  loss_l1_weight: 0.8
+  loss_l2_weight: 0.2
+  loss_perceptual_weight: 0.3
+  loss_gradient_weight: 0.1
   route_score_psnr_weight: 1.0
   route_score_ssim_weight: 0.0
   route_score_color_weight: 0.0
+  phase_schedule:
+    - name: structure_bootstrap
+      start_epoch: 0
+      lambda_style: 3.0
+      lambda_route: 0.05
+      lambda_foreground: 0.02
+      lambda_background: 0.01
+      lambda_branch_supervision: 0.25
+      lambda_psnr_mse: 1.0
+      lambda_ssim_loss: 0.2
+      lambda_color_mse: 0.1
+      loss_l1_weight: 0.8
+      loss_l2_weight: 0.2
+      loss_perceptual_weight: 0.3
+      loss_gradient_weight: 0.1
+    - name: psnr_polish
+      start_epoch: 130
+      generator_lr: 0.000003
+      router_lr: 0.0000005
+      lambda_style: 0.0
+      lambda_route: 0.02
+      lambda_foreground: 0.0
+      lambda_background: 0.0
+      lambda_branch_supervision: 0.1
+      lambda_psnr_mse: 2.0
+      lambda_ssim_loss: 0.05
+      lambda_color_mse: 0.5
+      loss_l1_weight: 0.2
+      loss_l2_weight: 1.0
+      loss_perceptual_weight: 0.0
+      loss_gradient_weight: 0.02
 
 evaluation:
-  checkpoint: null
+  checkpoint: artifacts/clipuie_euvp_scene_final/checkpoints/runs/20260522-113301/best.pth
+  calibration_path: null
   save_images: false
   hard_route: false
-  output_branch_index: null
+  output_branch_index: 1
+  self_ensemble: false
   compute_uiqm: true
   compute_uciqe: true
   compute_branch_metrics: false

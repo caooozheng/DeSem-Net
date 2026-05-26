@@ -1,12 +1,12 @@
 experiment:
-  name: clipuie_ufo120
+  name: uieb
   seed: 42
   output_dir: artifacts
 
 dataset:
-  train_root: UnderwaterDatasets/UFO-120/train
-  val_root: UnderwaterDatasets/UFO-120/val
-  test_root: UnderwaterDatasets/UFO-120/test
+  train_root: UnderwaterDatasets/UIEB/train
+  val_root: UnderwaterDatasets/UIEB/val
+  test_root: UnderwaterDatasets/UIEB/test
   image_size: 256
   batch_size: 2
   num_workers: 4
@@ -18,28 +18,18 @@ dataset:
 model:
   name: clipuie_net
   num_branch: 3
-  n_feat: 40
+  n_feat: 32
   n_rcb: 2
   chan_factor: 2
   use_sam_mask: true
   use_dual_region_branch: true
   region_fusion_strength: 0.2
-  use_rsdc: true
-  rsdc_strength: 0.05
   multimodal_aux_strength: 0.02
   use_multimodal_initial_condition: false
   use_fg_bg_decoder: true
   fg_bg_decoder_strength: 0.05
   use_frequency_refinement: false
   frequency_refinement_strength: 0.0
-  use_wavelet_refinement: false
-  wavelet_refinement_strength: 0.0
-  use_transformer_context: false
-  transformer_context_strength: 0.0
-  use_white_balance_correction: true
-  white_balance_strength: 0.08
-  use_output_refinement: true
-  output_refinement_strength: 0.12
   use_physical_head: false
 
 multimodal:
@@ -53,8 +43,8 @@ multimodal:
 
 optimizer:
   name: adamw
-  generator_lr: 0.0001
-  router_lr: 0.00002
+  generator_lr: 0.00005
+  router_lr: 0.00001
   weight_decay: 0.0001
   betas: [0.9, 0.999]
 
@@ -65,36 +55,34 @@ scheduler:
   router_gamma: 0.3
 
 training:
-  epochs: 240
-  route_start_epoch: 30
+  epochs: 200
+  route_start_epoch: 0
   checkpoint_interval: 20
   validate_on: val
   pretrained_checkpoint: null
-  resume_checkpoint: null
+  resume_checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/latest.pth
   strict_load: false
-  lambda_style: 10.0
-  lambda_route: 0.2
-  lambda_foreground: 0.02
-  lambda_background: 0.01
+  lambda_style: 5.0
+  lambda_route: 1.0
+  lambda_foreground: 0.2
+  lambda_background: 0.05
   lambda_physical: 0.0
   lambda_lab: 0.0
   lambda_histogram: 0.0
   lambda_boundary: 0.0
   lambda_foreground_texture: 0.0
-  lambda_branch_supervision: 0.15
-  lambda_psnr_mse: 0.35
-  route_score_psnr_weight: 1.0
-  route_score_ssim_weight: 0.0
+  route_score_psnr_weight: 0.9
+  route_score_ssim_weight: 0.1
   route_score_color_weight: 0.0
 
 evaluation:
-  checkpoint: null
-  save_images: false
-  hard_route: false
-  output_branch_index: null
+  checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/best.pth
+  save_images: true
+  hard_route: true
+  output_branch_index: 1
   compute_uiqm: true
   compute_uciqe: true
-  compute_branch_metrics: true
+  compute_branch_metrics: false
 
 runtime:
   device: cuda

@@ -24,12 +24,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default=None, help="Device override, for example `cpu`, `cuda`, or `cuda:1`.")
     parser.add_argument("--gpu", type=int, default=2, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
     parser.add_argument("--checkpoint", default=None, help="Path to the checkpoint file. Overrides the YAML setting.")
+    parser.add_argument("--calibration", default=None, help="Path to an RGB affine calibration JSON.")
     parser.add_argument("--split", default="test", choices=["val", "test"], help="Evaluation split.")
     parser.add_argument("--save-images", action="store_true", help="Save output and comparison images for visual inspection.")
     parser.add_argument("--soft-route", action="store_true", help="Use soft routing during evaluation instead of config hard_route.")
     parser.add_argument("--output-branch", type=int, default=None, help="Use a fixed branch as the final output, for example 1 for branch_1.")
     parser.add_argument("--route-output", action="store_true", help="Use the model route output instead of a fixed output branch from the config.")
     parser.add_argument("--branch-metrics", action="store_true", help="Temporarily report per-branch PSNR metrics.")
+    parser.add_argument("--self-ensemble", action="store_true", help="Use flip/transpose test-time self-ensemble for the final output.")
     return parser.parse_args()
 
 
@@ -38,6 +40,8 @@ def main() -> None:
     config = load_config(args.config)
     if args.save_images:
         config.evaluation.save_images = True
+    if args.calibration:
+        config.evaluation.calibration_path = args.calibration
     if args.soft_route:
         config.evaluation.hard_route = False
     if args.route_output:
@@ -46,6 +50,8 @@ def main() -> None:
         config.evaluation.output_branch_index = args.output_branch
     if args.branch_metrics:
         config.evaluation.compute_branch_metrics = True
+    if args.self_ensemble:
+        config.evaluation.self_ensemble = True
     seed_everything(config.experiment.seed)
     requested_device = args.device or (f"cuda:{args.gpu}" if args.gpu is not None else config.runtime.device)
     device = resolve_device(requested_device)

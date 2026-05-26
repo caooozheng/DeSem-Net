@@ -97,6 +97,7 @@ class TrainingSection:
     pretrained_checkpoint: Optional[str] = None
     resume_checkpoint: Optional[str] = None
     strict_load: bool = False
+    trainable_keywords: list[str] = field(default_factory=list)
     use_ema: bool = False
     ema_decay: float = 0.999
     lambda_recon: float = 1.0
@@ -112,17 +113,25 @@ class TrainingSection:
     lambda_branch_supervision: float = 0.0
     lambda_psnr_mse: float = 0.0
     lambda_ssim_loss: float = 0.0
+    lambda_color_mse: float = 0.0
+    loss_l1_weight: float = 0.8
+    loss_l2_weight: float = 0.2
+    loss_perceptual_weight: float = 0.3
+    loss_gradient_weight: float = 0.1
     route_score_psnr_weight: float = 0.7
     route_score_ssim_weight: float = 0.2
     route_score_color_weight: float = 0.1
+    phase_schedule: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
 class EvaluationSection:
     checkpoint: Optional[str] = None
+    calibration_path: Optional[str] = None
     save_images: bool = False
     hard_route: bool = False
     output_branch_index: Optional[int] = None
+    self_ensemble: bool = False
     compute_uiqm: bool = True
     compute_uciqe: bool = True
     compute_branch_metrics: bool = True
