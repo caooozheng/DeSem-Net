@@ -19,6 +19,9 @@ dependencies = [
   "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
   "transformers>=4.40.0",
   "sentencepiece",
+  "timm",
+  "einops",
+  "pyiqa"
 ]
 
 [tool.setuptools.packages.find]

@@ -1,0 +1,47 @@
+base_config: configs/uieb.yaml
+
+dataset:
+  data_root: UnderwaterDatasets/Challenging-60
+  input_subdir: test
+  image_size: 256
+  mask_dir_name: null
+  mask_suffix: .npy
+  mask_fallback_value: 1.0
+
+model:
+  checkpoint: weight/uieb/best.pth
+
+inference:
+  hard_route: true
+  output_branch: 2
+  self_ensemble: false
+
+metrics:
+  niqe: true
+  uranker: true
+  niqe_name: niqe_matlab
+  niqe_version: matlab
+  niqe_color_space: ycbcr
+  niqe_crop_border: 0
+  niqe_test_y_channel: true
+  uranker_name: uranker
+  uranker_local_config: sam_integration/uranker/URanker.yaml
+  uranker_checkpoint: sam_integration/weight/uranker.pth
+  strict_iqa: false
+
+postprocess:
+  enabled: true
+  method: gaussian
+  blend: 0.15
+  kernel_size: 3
+  sigma: 0.6
+
+runtime:
+  device: cuda
+  gpu: null
+  batch_size: 2
+  num_workers: 4
+  pin_memory: true
+
+output:
+  output_dir: artifacts/CH60
