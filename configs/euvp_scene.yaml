@@ -131,7 +131,8 @@ training:
       loss_gradient_weight: 0.02
 
 evaluation:
-  checkpoint: artifacts/clipuie_euvp_scene_final/checkpoints/runs/20260522-113301/best.pth
+  #checkpoint: artifacts/clipuie_euvp_scene_final/checkpoints/runs/20260522-113301/best.pth
+  checkpoint: weight/euvp-scene/best.pth
   calibration_path: null
   save_images: false
   hard_route: false

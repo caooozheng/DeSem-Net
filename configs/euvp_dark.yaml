@@ -100,7 +100,8 @@ training:
   route_score_color_weight: 0.0
 
 evaluation:
-  checkpoint: artifacts/clipuie_euvp_scene_psnr30_fullfinetune/checkpoints/runs/20260523-173656/latest.pth
+#  checkpoint: artifacts/clipuie_euvp_scene_psnr30_fullfinetune/checkpoints/runs/20260523-173656/latest.pth
+  checkpoint: weight/euvp-dark/latest.pth
   calibration_path: null
   save_images: false
   hard_route: false

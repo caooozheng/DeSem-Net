@@ -43,15 +43,15 @@ multimodal:
 
 optimizer:
   name: adamw
-  generator_lr: 0.00005
-  router_lr: 0.00001
-  weight_decay: 0.0001
+  generator_lr: 0.00001
+  router_lr: 0.000002
+  weight_decay: 0.00005
   betas: [0.9, 0.999]
 
 scheduler:
-  generator_milestones: [40, 80, 140, 180]
+  generator_milestones: [60, 120]
   generator_gamma: 0.5
-  router_milestones: [40, 80, 140, 180]
+  router_milestones: [60, 120]
   router_gamma: 0.3
 
 training:
@@ -60,26 +60,84 @@ training:
   checkpoint_interval: 20
   validate_on: val
   pretrained_checkpoint: null
-  resume_checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/latest.pth
+  resume_checkpoint: null
   strict_load: false
-  lambda_style: 5.0
-  lambda_route: 1.0
-  lambda_foreground: 0.2
-  lambda_background: 0.05
+  lambda_recon: 0.0
+  lambda_style: 2.0
+  lambda_route: 0.05
+  lambda_foreground: 0.02
+  lambda_background: 0.005
   lambda_physical: 0.0
   lambda_lab: 0.0
   lambda_histogram: 0.0
   lambda_boundary: 0.0
   lambda_foreground_texture: 0.0
-  route_score_psnr_weight: 0.9
-  route_score_ssim_weight: 0.1
+  lambda_branch_supervision: 0.05
+  lambda_psnr_mse: 0.8
+  lambda_ssim_loss: 0.08
+  lambda_color_mse: 0.05
+  loss_l1_weight: 0.5
+  loss_l2_weight: 0.5
+  loss_perceptual_weight: 0.05
+  loss_gradient_weight: 0.04
+  route_score_psnr_weight: 1.0
+  route_score_ssim_weight: 0.0
   route_score_color_weight: 0.0
+  phase_schedule:
+    - name: generalize_finetune
+      start_epoch: 0
+      lambda_style: 2.0
+      lambda_route: 0.05
+      lambda_foreground: 0.02
+      lambda_background: 0.005
+      lambda_branch_supervision: 0.05
+      lambda_psnr_mse: 0.8
+      lambda_ssim_loss: 0.08
+      lambda_color_mse: 0.05
+      loss_l1_weight: 0.5
+      loss_l2_weight: 0.5
+      loss_perceptual_weight: 0.05
+      loss_gradient_weight: 0.04
+    - name: psnr_polish
+      start_epoch: 60
+      generator_lr: 0.000003
+      router_lr: 0.0000006
+      lambda_style: 0.8
+      lambda_route: 0.03
+      lambda_foreground: 0.0
+      lambda_background: 0.0
+      lambda_branch_supervision: 0.03
+      lambda_psnr_mse: 1.0
+      lambda_ssim_loss: 0.04
+      lambda_color_mse: 0.1
+      loss_l1_weight: 0.35
+      loss_l2_weight: 0.65
+      loss_perceptual_weight: 0.0
+      loss_gradient_weight: 0.02
+    - name: low_lr_hold
+      start_epoch: 120
+      generator_lr: 0.000001
+      router_lr: 0.0000002
+      lambda_style: 0.5
+      lambda_route: 0.02
+      lambda_foreground: 0.0
+      lambda_background: 0.0
+      lambda_branch_supervision: 0.02
+      lambda_psnr_mse: 1.0
+      lambda_ssim_loss: 0.03
+      lambda_color_mse: 0.08
+      loss_l1_weight: 0.35
+      loss_l2_weight: 0.65
+      loss_perceptual_weight: 0.0
+      loss_gradient_weight: 0.005
 
 evaluation:
-  checkpoint: artifacts/clipuie_final/checkpoints/runs/20260505-173828/best.pth
-  save_images: true
+#  checkpoint: artifacts/uieb_psnr32_v3/checkpoints/best.pth
+  checkpoint: weight/uieb/best.pth
+  save_images: false
   hard_route: true
   output_branch_index: 1
+  self_ensemble: true
   compute_uiqm: true
   compute_uciqe: true
   compute_branch_metrics: false

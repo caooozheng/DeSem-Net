@@ -99,7 +99,8 @@ training:
   route_score_color_weight: 0.0
 
 evaluation:
-  checkpoint: artifacts/clipuie_lsui/checkpoints/runs/20260519-193302/best.pth
+#  checkpoint: artifacts/clipuie_lsui/checkpoints/runs/20260519-193302/best.pth
+  checkpoint: weight/lsui/best.pth
   calibration_path: null
   save_images: true
   hard_route: false
