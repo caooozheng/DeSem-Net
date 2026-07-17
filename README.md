@@ -1,7 +1,7 @@
 # DeSem-Net
 <img width="1571" height="696" alt="image" src="https://github.com/user-attachments/assets/253dc958-5110-4b82-8a9f-044ac11f1fb0" />
 ## 项目结构
-```
+
 Clip-UIE/
   train.py                     # 训练入口
   test.py                      # 有参考测试入口
@@ -30,7 +30,7 @@ Clip-UIE/
   sam_integration/
     generate_sam_masks.py      # 生成 SAM 掩码
     uranker/                   # URanker 相关代码
-```
+
 
 ## 环境配置
 ```
