@@ -134,7 +134,7 @@ training:
 evaluation:
 #  checkpoint: artifacts/uieb_psnr32_v3/checkpoints/best.pth
   checkpoint: weight/uieb/best.pth
-  save_images: false
+  save_images: true
   hard_route: true
   output_branch_index: 1
   self_ensemble: true

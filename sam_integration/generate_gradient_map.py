@@ -34,6 +34,6 @@ def generate_enhanced_gradient_map(image_path, save_path="gradient_map_enhanced.
 
 if __name__ == "__main__":
     generate_enhanced_gradient_map(
-        image_path="input/2677.png",
-        save_path="2677_gradient_enhanced.png"
+        image_path="GT.jpg",
+        save_path="GT_grad.jpg"
     )

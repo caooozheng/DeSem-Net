@@ -13,7 +13,7 @@ from segment_anything import SamAutomaticMaskGenerator, sam_model_registry
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate SAM masks for EUVP-Dark datasets.")
-    parser.add_argument("--dataset-root",  default="../../Clip-UIE/UnderwaterDatasets/EUVP-Dark", help="Dataset root that contains train/val/test.")
+    parser.add_argument("--dataset-root",  default="../../Clip-UIE/tmp", help="Dataset root that contains train/val/test.")
     parser.add_argument("--sam-checkpoint", default="../sam_integration/weight/sam_vit_h_4b8939.pth", help="Path to the SAM checkpoint.")
     parser.add_argument("--model-type", default="vit_h", choices=["vit_h", "vit_l", "vit_b"])
     parser.add_argument("--gpu", type=int, default=2, help="CUDA GPU index. Falls back to CPU when CUDA is unavailable.")

@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 from clipuie.config import load_config
 from clipuie.data.prompts import build_underwater_prompt
@@ -424,7 +425,7 @@ def evaluate_no_reference(
     output_image_dir.mkdir(parents=True, exist_ok=True)
     rows = []
     model.eval()
-    for batch in dataloader:
+    for batch in tqdm(dataloader, desc="No-reference evaluating", leave=False):
         inputs = batch["input"].to(device)
         masks = batch["mask"].to(device)
         prompts = list(batch["prompt"])

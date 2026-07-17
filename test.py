@@ -15,14 +15,14 @@ from clipuie.utils import create_run_directories, resolve_device, seed_everythin
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate ClipUIe experiments.")
-    default_config = Path(__file__).resolve().parent / "sam_integration/configs" / "clipuie_euvp_scene_sam_clip_llm.yaml"
+    default_config = Path(__file__).resolve().parent / "configs" / "euvp_dark.yaml"
     parser.add_argument(
         "--config",
         default=str(default_config),
         help=f"Path to a YAML config file. Defaults to {default_config}.",
     )
     parser.add_argument("--device", default=None, help="Device override, for example `cpu`, `cuda`, or `cuda:1`.")
-    parser.add_argument("--gpu", type=int, default=2, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
+    parser.add_argument("--gpu", type=int, default=1, help="GPU index shortcut. For example `--gpu 1` means `cuda:1`.")
     parser.add_argument("--checkpoint", default=None, help="Path to the checkpoint file. Overrides the YAML setting.")
     parser.add_argument("--calibration", default=None, help="Path to an RGB affine calibration JSON.")
     parser.add_argument("--split", default="test", choices=["val", "test"], help="Evaluation split.")

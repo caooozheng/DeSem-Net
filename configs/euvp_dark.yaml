@@ -67,7 +67,7 @@ scheduler:
   router_gamma: 0.5
 
 training:
-  epochs: 180
+  epochs: 1000
   route_start_epoch: 0
   checkpoint_interval: 0
   validate_on: val
@@ -103,7 +103,7 @@ evaluation:
 #  checkpoint: artifacts/clipuie_euvp_scene_psnr30_fullfinetune/checkpoints/runs/20260523-173656/latest.pth
   checkpoint: weight/euvp-dark/latest.pth
   calibration_path: null
-  save_images: false
+  save_images: true
   hard_route: false
   output_branch_index: 1
   self_ensemble: false
