@@ -122,10 +122,10 @@ python test.py \
 对于没有 GT 的图像，可以使用 no_ref_test.py。
 
 ##  注意事项
-train.py 建议始终显式传入 --config，例如 python train.py --config configs/uieb.yaml。
-使用多模态模型时，configs/models/ 下需要提前准备 CLIP 和 LLM 模型文件。
-使用 SAM mask 时，确保每张输入图像都有同名 .npy 掩码；没有掩码时会自动使用全 1 mask。
-测试时如果 YAML 中的 evaluation.checkpoint 不存在，请使用 --checkpoint 手动指定。
-默认输入尺寸为 256x256，可在 YAML 的 dataset.image_size 中修改。
+* train.py 建议始终显式传入 --config，例如 python train.py --config configs/uieb.yaml。
+* 使用多模态模型时，configs/models/ 下需要提前准备 CLIP 和 LLM 模型文件。
+* 使用 SAM mask 时，确保每张输入图像都有同名 .npy 掩码；没有掩码时会自动使用全 1 mask。
+* 测试时如果 YAML 中的 evaluation.checkpoint 不存在，请使用 --checkpoint 手动指定。
+* 默认输入尺寸为 256x256，可在 YAML 的 dataset.image_size 中修改。
 ##  引用
 如果该项目对你的研究有帮助，请引用本项目或相关论文。
