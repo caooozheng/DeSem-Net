@@ -1,3 +1,4 @@
 # DeSem-Net
-<img width="1629" height="730" alt="image" src="https://github.com/user-attachments/assets/9a0982c1-95fa-4479-a891-e3b9713824c7" />
+<img width="1571" height="696" alt="image" src="https://github.com/user-attachments/assets/253dc958-5110-4b82-8a9f-044ac11f1fb0" />
+
 
