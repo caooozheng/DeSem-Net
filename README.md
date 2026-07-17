@@ -40,9 +40,12 @@ conda activate DeSem-Net
 Install project dependencies
 pip install -e .
 ```
-If multimodal configuration is enabled, local Hugging Face model directories are required. The default paths in the YAML files are:
+If multimodal configuration is enabled, local Hugging Face model directories are required. 
+The default paths in the YAML files are:
+```
 configs/models/clip-vit-base-patch32
 configs/models/Qwen2.5-1.5B-Instruct
+```
 ## Dataset Split
 ```
 UnderwaterDatasets/
