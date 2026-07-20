@@ -81,6 +81,8 @@ artifacts/{experiment.name}/checkpoints/latest.pth
 artifacts/{experiment.name}/checkpoints/best.pth
 artifacts/{experiment.name}/checkpoints/runs/{run_id}/
 ```
+our weight is at `https://pan.quark.cn/s/50ef30acde6f` the code is `8uCJ`
+
 ## Train
 ```
 python train.py --config configs/uieb.yaml --gpu 0
